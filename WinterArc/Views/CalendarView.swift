@@ -17,6 +17,7 @@ extension Date: Identifiable {
 struct CalendarView: View {
     @Query private var entries: [DailyEntry]
     @Query private var habits: [Habit]
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
     // Start from February 2025 (0 represents Dec 2024, 1 -> Jan 2025, 2 -> Feb 2025)
@@ -90,6 +91,8 @@ struct CalendarView: View {
                                         }
                                     }
                                     .onTapGesture {
+                                        // Before showing the entry, ensure it exists
+                                        ensureEntryExists(for: date)
                                         selectedDate = date
                                     }
                                 } else {
@@ -117,8 +120,14 @@ struct CalendarView: View {
                 if let entry = entries.first(where: { Calendar.current.isDate($0.date, inSameDayAs: date) }) {
                     EntryDetailView(entry: entry)
                 } else {
-                    EmptyView()
+                    // This should not happen now that we ensure entries exist
+                    Text("No entry found for this date.")
+                        .padding()
                 }
+            }
+            .onAppear {
+                // Fill in missing dates when calendar view appears
+                createEntriesForMissingDates()
             }
         }
     }
@@ -175,6 +184,95 @@ struct CalendarView: View {
         let totalHabits = relevantHabits.count
         let completedHabits = entry.habitStatuses.filter { $0.value }.count
         return totalHabits > 0 ? Double(completedHabits) / Double(totalHabits) : nil
+    }
+    
+    // Ensure that an entry exists for a specific date
+    private func ensureEntryExists(for date: Date) {
+        // Check if the entry already exists
+        let entryExists = entries.contains(where: { Calendar.current.isDate($0.date, inSameDayAs: date) })
+        
+        if !entryExists {
+            // Create a new entry for this date with all habits set to false
+            var newEntry = DailyEntry(date: date, habitStatuses: [:])
+            
+            // Get all habits that existed on or before this date
+            let relevantHabits = habits.filter { habit in
+                Calendar.current.isDate(habit.creationDate, inSameDayAs: date) || habit.creationDate <= date
+            }
+            
+            // Set all habits to false
+            for habit in relevantHabits {
+                newEntry.habitStatuses[habit.id] = false
+            }
+            
+            // Only insert if we have at least one habit for this date
+            if !newEntry.habitStatuses.isEmpty {
+                modelContext.insert(newEntry)
+                try? modelContext.save()
+            }
+        }
+    }
+    
+    // This function will check for missing dates and create entries for them
+    private func createEntriesForMissingDates() {
+        let calendar = Calendar.current
+        
+        // Get all existing entry dates
+        let existingDates = entries.map { $0.date }
+        
+        // Find the earliest habit creation date or the earliest entry date, whichever is earlier
+        let earliestHabitDate = habits.min { $0.creationDate < $1.creationDate }?.creationDate
+        let earliestEntryDate = entries.min { $0.date < $1.date }?.date
+        
+        var startDate: Date
+        
+        if let earliestHabit = earliestHabitDate, let earliestEntry = earliestEntryDate {
+            startDate = earliestHabit < earliestEntry ? earliestHabit : earliestEntry
+        } else if let earliestHabit = earliestHabitDate {
+            startDate = earliestHabit
+        } else if let earliestEntry = earliestEntryDate {
+            startDate = earliestEntry
+        } else {
+            // If no habits or entries exist yet, no need to fill dates
+            return
+        }
+        
+        // Remove time components for accurate date comparison
+        startDate = calendar.startOfDay(for: startDate)
+        let today = calendar.startOfDay(for: Date())
+        
+        // Create a date range from the start date to today
+        var currentDate = startDate
+        while currentDate <= today {
+            // Check if an entry already exists for this date
+            let entryExists = existingDates.contains { calendar.isDate($0, inSameDayAs: currentDate) }
+            
+            if !entryExists {
+                // Create a new entry for this date, with all habits set to false
+                var newEntry = DailyEntry(date: currentDate, habitStatuses: [:])
+                
+                // Add all habits that existed on or before this date
+                for habit in habits where calendar.isDate(habit.creationDate, inSameDayAs: currentDate) ||
+                                   habit.creationDate <= currentDate {
+                    newEntry.habitStatuses[habit.id] = false
+                }
+                
+                // Only insert if we have at least one habit for this date
+                if !newEntry.habitStatuses.isEmpty {
+                    modelContext.insert(newEntry)
+                }
+            }
+            
+            // Move to the next day
+            if let nextDate = calendar.date(byAdding: .day, value: 1, to: currentDate) {
+                currentDate = nextDate
+            } else {
+                break
+            }
+        }
+        
+        // Save the changes
+        try? modelContext.save()
     }
 }
 

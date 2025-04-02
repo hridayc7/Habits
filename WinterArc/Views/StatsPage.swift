@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import SwiftData
+import UniformTypeIdentifiers
 
 struct StatsPage: View {
     @Query private var habits: [Habit]
@@ -10,23 +11,25 @@ struct StatsPage: View {
         NavigationView {
             List {
                 ForEach(habits) { habit in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(habit.name)
-                            .font(.headline)
+                    NavigationLink(destination: HabitDetailView(habit: habit)) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(habit.name)
+                                .font(.headline)
 
-                        ProgressView(value: calculateCompletion(for: habit))
+                            ProgressView(value: calculateCompletion(for: habit))
 
-                        HStack {
-                            Text("Streak: \(calculateCurrentStreakDebug(for: habit)) \(calculateCurrentStreakDebug(for: habit) == 1 ? "day" : "days")")
-                                .font(.subheadline)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            HStack {
+                                Text("Streak: \(calculateCurrentStreak(for: habit)) \(calculateCurrentStreak(for: habit) == 1 ? "day" : "days")")
+                                    .font(.subheadline)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                            Text("Completion: \(Int(calculateCompletion(for: habit) * 100))%")
-                                .font(.subheadline)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                Text("Completion: \(Int(calculateCompletion(for: habit) * 100))%")
+                                    .font(.subheadline)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                 }
             }
             .navigationTitle("Stats")
@@ -40,7 +43,7 @@ struct StatsPage: View {
         return totalDays > 0 ? Double(completedDays) / Double(totalDays) : 0
     }
 
-    private func calculateCurrentStreakDebug(for habit: Habit) -> Int {
+    private func calculateCurrentStreak(for habit: Habit) -> Int {
         let sortedEntries = entries
             .filter {
                 Calendar.current.isDate(habit.creationDate, inSameDayAs: $0.date) || $0.date >= habit.creationDate
